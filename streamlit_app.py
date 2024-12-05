@@ -1,151 +1,166 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
 
-# Set the title and favicon that appear in the Browser's tab bar.
+# Set up Streamlit page configuration
 st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
+    page_title='Claims Dashboard',
+    page_icon=':clipboard:',  # Dashboard icon
 )
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+# Title of the dashboard
+st.title(':clipboard: Claims Dashboard')
+st.markdown("""
+Analyze claim data and injury types. Use the filters below to explore the dataset interactively.
+""")
 
+# Load the dataset
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_data():
+    file_path = '/workspaces/gdp-dashboard-2/data/submission_2 (Autosaved).csv'  # Update the file path if needed
+    data = pd.read_csv(file_path)
+    return data
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+data = load_data()
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# Show a preview of the data
+if st.checkbox('Show dataset preview'):
+    st.write(data.head())
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
-
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
-
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
+# Dropdown for filtering by injury type
+injury_types = data['Claim Injury Type'].unique()
+selected_injury_types = st.multiselect(
+    'Select Injury Types to Analyze',
+    options=injury_types,
+    default=injury_types[:3]  # Preselect the first three options
 )
 
-''
-''
+# Filter dataset based on selection
+filtered_data = data[data['Claim Injury Type'].isin(selected_injury_types)]
+
+# Display summary statistics
+st.subheader('Summary Statistics')
+st.write(f"Total Claims in Dataset: {len(data)}")
+st.write(f"Filtered Claims: {len(filtered_data)}")
+
+# Line chart of claim counts over time
+st.subheader('Claim Trends Over Time')
+
+# Check if there is a date or year column for plotting
+if 'Year' in data.columns:  # Replace 'Year' with your actual time column if different
+    # Group by year and count claims
+    trend_data = filtered_data.groupby('Year').size().reset_index(name='Claim Count')
+    st.line_chart(trend_data.set_index('Year'))
+else:
+    st.error("The dataset does not contain a 'Year' column. Please ensure your dataset has a time-related column for trends.")
+
+# Bar chart of claim counts by injury type
+st.subheader('Claim Counts by Injury Type')
+claim_counts = filtered_data['Claim Injury Type'].value_counts()
+st.bar_chart(claim_counts)
+
+# Downloadable filtered dataset
+st.subheader('Download Filtered Dataset')
+csv = filtered_data.to_csv(index=False)
+st.download_button(
+    label="Download as CSV",
+    data=csv,
+    file_name='filtered_claims.csv',
+    mime='text/csv'
+)
+
+# Additional notes
+st.markdown("""
+This dashboard is designed to provide insights into the claims data, focusing on injury types. Use the filter and download options to customize your analysis.
+""")
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
 
-st.header(f'GDP in {to_year}', divider='gray')
 
-''
 
-cols = st.columns(4)
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# import streamlit as st
+# import pandas as pd
+
+# # Set up Streamlit page configuration
+# st.set_page_config(
+#     page_title='Claims Dashboard',
+#     page_icon=':clipboard:',  # Dashboard icon
+# )
+
+# # Title of the dashboard
+# st.title(':clipboard: Claims Dashboard')
+# st.markdown("""
+# Analyze claim data and injury types. Use the filters below to explore the dataset interactively.
+# """)
+
+# # Load the dataset
+# @st.cache_data
+# def load_data():
+#     file_path = '/workspaces/gdp-dashboard-2/data/submission_2 (Autosaved).csv'
+#     data = pd.read_csv(file_path)
+#     return data
+
+# data = load_data()
+
+# # Show a preview of the data
+# if st.checkbox('Show dataset preview'):
+#     st.write(data.head())
+
+# # Dropdown for filtering by injury type
+# injury_types = data['Claim Injury Type'].unique()
+# selected_injury_types = st.multiselect(
+#     'Select Injury Types to Analyze',
+#     options=injury_types,
+#     default=injury_types[:3]  # Preselect the first three options
+# )
+
+# # Filter dataset based on selection
+# filtered_data = data[data['Claim Injury Type'].isin(selected_injury_types)]
+
+# # Display summary statistics
+# st.subheader('Summary Statistics')
+# st.write(f"Total Claims in Dataset: {len(data)}")
+# st.write(f"Filtered Claims: {len(filtered_data)}")
+
+# # Bar chart of claim counts by injury type
+# st.subheader('Claim Counts by Injury Type')
+# claim_counts = filtered_data['Claim Injury Type'].value_counts()
+# st.bar_chart(claim_counts)
+
+# # Downloadable filtered dataset
+# st.subheader('Download Filtered Dataset')
+# csv = filtered_data.to_csv(index=False)
+# st.download_button(
+#     label="Download as CSV",
+#     data=csv,
+#     file_name='filtered_claims.csv',
+#     mime='text/csv'
+# )
+
+# # Additional notes
+# st.markdown("""
+# This dashboard is designed to provide insights into the claims data, focusing on injury types. Use the filter and download options to customize your analysis.
+# """)
